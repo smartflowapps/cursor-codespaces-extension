@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { parse, modify, applyEdits, ParseError, printParseErrorCode } from 'jsonc-parser';
 
 export class DevcontainerFixer {
 	private static instance: DevcontainerFixer;
@@ -69,31 +70,38 @@ export class DevcontainerFixer {
 			return;
 		}
 
-		// Read existing devcontainer.json
+		// Read existing devcontainer.json (JSONC: tolerates comments and trailing commas)
 		try {
 			const content = fs.readFileSync(devcontainerPath, 'utf-8');
-			const config = JSON.parse(content);
+			const errors: ParseError[] = [];
+			const config = parse(content, errors, { allowTrailingComma: true });
+
+			if (errors.length > 0) {
+				const summary = errors
+					.map(e => `${printParseErrorCode(e.error)} at offset ${e.offset}`)
+					.join('; ');
+				throw new Error(`devcontainer.json is not valid JSONC: ${summary}`);
+			}
 
 			// Check if SSHD feature already exists
-			if (config.features && config.features['ghcr.io/devcontainers/features/sshd:1']) {
+			if (config?.features && config.features['ghcr.io/devcontainers/features/sshd:1']) {
 				await vscode.window.showInformationMessage(
 					'SSHD feature is already configured in devcontainer.json.'
 				);
 				return;
 			}
 
-			// Add SSHD feature
-			if (!config.features) {
-				config.features = {};
-			}
-			config.features['ghcr.io/devcontainers/features/sshd:1'] = {};
-
-			// Write back
-			fs.writeFileSync(
-				devcontainerPath,
-				JSON.stringify(config, null, 2),
-				'utf-8'
+			// Surgically insert the SSHD feature, preserving comments and formatting
+			const formattingOptions = { tabSize: 2, insertSpaces: true, eol: '\n' };
+			const edits = modify(
+				content,
+				['features', 'ghcr.io/devcontainers/features/sshd:1'],
+				{},
+				{ formattingOptions }
 			);
+			const updated = applyEdits(content, edits);
+
+			fs.writeFileSync(devcontainerPath, updated, 'utf-8');
 
 			// Open the file for user to review
 			const document = await vscode.workspace.openTextDocument(devcontainerPath);
