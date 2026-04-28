@@ -196,9 +196,12 @@ export class GhService {
 	}
 
 	/**
-	 * Rebuild a codespace using GitHub API. Pass full=true to do a full rebuild
-	 * (re-runs the devcontainer build from scratch — required when adding new
+	 * Rebuild a codespace via the gh CLI. Pass full=true for a full rebuild
+	 * (clears cached Docker images — required when adding new devcontainer
 	 * features such as sshd that weren't present in the cached image).
+	 *
+	 * Uses `gh codespace rebuild` since GitHub doesn't expose a REST endpoint
+	 * for rebuilds.
 	 */
 	async rebuildCodespace(codespaceName: string, full: boolean = true): Promise<void> {
 		if (!/^[a-zA-Z0-9_-]+$/.test(codespaceName)) {
@@ -207,7 +210,7 @@ export class GhService {
 
 		try {
 			await execAsync(
-				`gh api -X POST user/codespaces/${codespaceName}/rebuild -f full=${full ? 'true' : 'false'}`,
+				`gh codespace rebuild -c ${codespaceName}${full ? ' --full' : ''}`,
 				{
 					encoding: 'utf-8',
 					shell: process.platform === 'win32' ? undefined : '/bin/sh'

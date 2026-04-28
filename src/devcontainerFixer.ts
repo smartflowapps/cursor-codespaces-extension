@@ -156,7 +156,7 @@ export class DevcontainerFixer {
 
 	/**
 	 * Walk the user through the remaining manual steps (commit + push) and then
-	 * offer to trigger a full rebuild via the GitHub API.
+	 * trigger a full rebuild via `gh codespace rebuild --full`.
 	 */
 	private async promptCommitAndRebuild(
 		codespace: Codespace,
