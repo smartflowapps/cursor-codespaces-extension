@@ -196,6 +196,29 @@ export class GhService {
 	}
 
 	/**
+	 * Rebuild a codespace using GitHub API. Pass full=true to do a full rebuild
+	 * (re-runs the devcontainer build from scratch — required when adding new
+	 * features such as sshd that weren't present in the cached image).
+	 */
+	async rebuildCodespace(codespaceName: string, full: boolean = true): Promise<void> {
+		if (!/^[a-zA-Z0-9_-]+$/.test(codespaceName)) {
+			throw new Error('Invalid codespace name format');
+		}
+
+		try {
+			await execAsync(
+				`gh api -X POST user/codespaces/${codespaceName}/rebuild -f full=${full ? 'true' : 'false'}`,
+				{
+					encoding: 'utf-8',
+					shell: process.platform === 'win32' ? undefined : '/bin/sh'
+				}
+			);
+		} catch (error: any) {
+			throw new Error(`Failed to rebuild codespace: ${error.message}`);
+		}
+	}
+
+	/**
 	 * Delete a codespace using GitHub API
 	 */
 	async deleteCodespace(codespaceName: string): Promise<void> {

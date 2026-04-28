@@ -738,7 +738,10 @@ async function connectToCodespace(selectedCodespace?: Codespace): Promise<void> 
 			sshConfig = await ghService.generateSshConfig(codespace.name);
 		} catch (error: any) {
 			if (error.message === 'SSHD_NOT_CONFIGURED') {
-				await devcontainerFixer.offerSshdFix();
+				// Hand off to the fixer with the codespace context, then bail out —
+				// continuing to vscode.openFolder here is what causes the silent timeout
+				// the user reported, since SSH still has nowhere to connect.
+				await devcontainerFixer.offerSshdFix(latestCodespace);
 				return;
 			}
 			throw error;
