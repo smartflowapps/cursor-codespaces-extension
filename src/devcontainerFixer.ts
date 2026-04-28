@@ -156,7 +156,7 @@ export class DevcontainerFixer {
 
 	/**
 	 * Walk the user through the remaining manual steps (commit + push) and then
-	 * trigger a full rebuild via `gh codespace rebuild --full`.
+	 * trigger a rebuild via `gh codespace rebuild`.
 	 */
 	private async promptCommitAndRebuild(
 		codespace: Codespace,
@@ -195,11 +195,11 @@ export class DevcontainerFixer {
 			await vscode.window.withProgress(
 				{
 					location: vscode.ProgressLocation.Notification,
-					title: 'Rebuilding codespace (full rebuild — this can take several minutes)...',
+					title: 'Rebuilding codespace (this can take a few minutes)...',
 					cancellable: false
 				},
 				async () => {
-					await GhService.getInstance().rebuildCodespace(codespace.name, true);
+					await GhService.getInstance().rebuildCodespace(codespace.name);
 				}
 			);
 			await vscode.window.showInformationMessage(
