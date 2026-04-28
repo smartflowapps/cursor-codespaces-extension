@@ -1,8 +1,6 @@
 import * as vscode from 'vscode';
 import { exec } from 'child_process';
 import { promisify } from 'util';
-import * as fs from 'fs';
-import * as os from 'os';
 
 const execAsync = promisify(exec);
 
@@ -324,73 +322,50 @@ export class GhService {
 	}
 
 	/**
-	 * Generate SSH configuration for a codespace
-	 * On Linux, this also ensures SSH keys are generated
+	 * Generate SSH configuration for a codespace.
+	 *
+	 * Probes the codespace with a no-op `gh codespace ssh` first so we can
+	 * surface a recognizable SSHD_NOT_CONFIGURED error when sshd isn't
+	 * installed. `gh codespace ssh --config` alone doesn't connect, so it
+	 * can't tell us whether the codespace is actually reachable.
+	 *
+	 * The IdentityFile path emitted by `--config` (e.g. ~/.ssh/codespaces.auto)
+	 * may not exist on disk — gh's `--stdio` ProxyCommand handles auth itself,
+	 * and ssh tolerates a missing IdentityFile by falling back to other keys.
+	 * We don't need to verify or generate that file.
 	 */
 	async generateSshConfig(codespaceName: string): Promise<string> {
-		// Sanitize codespace name to prevent command injection
-		// Only allow alphanumeric, hyphens, and underscores
 		if (!/^[a-zA-Z0-9_-]+$/.test(codespaceName)) {
 			throw new Error('Invalid codespace name format');
 		}
 
 		try {
-			// First, get the SSH config to see what key file it references
+			await execAsync(
+				`gh codespace ssh -c ${codespaceName} -- exit 0`,
+				{
+					encoding: 'utf-8',
+					shell: process.platform === 'win32' ? undefined : '/bin/sh',
+					timeout: 20000
+				}
+			);
+		} catch (error: any) {
+			const stderr = (error.stderr || error.message || '').toString();
+			if (stderr.includes('sshd')) {
+				throw new Error('SSHD_NOT_CONFIGURED');
+			}
+			throw new Error(`Failed to reach codespace over SSH: ${error.message}`);
+		}
+
+		try {
 			const { stdout: sshConfig } = await execAsync(
 				`gh codespace ssh --config -c ${codespaceName}`,
-				{ 
+				{
 					encoding: 'utf-8',
 					shell: process.platform === 'win32' ? undefined : '/bin/sh'
 				}
 			);
-
-			// On Linux, check if the key file exists
-			// Extract IdentityFile from the config
-			const identityFileMatch = sshConfig.match(/IdentityFile\s+(.+)/);
-			if (identityFileMatch && process.platform !== 'win32') {
-				const keyPath = identityFileMatch[1].trim();
-				const expandedKeyPath = keyPath.replace(/^~/, os.homedir());
-				
-				// Check if the key file exists
-				if (!fs.existsSync(expandedKeyPath)) {
-					// Key file doesn't exist - trigger key generation by running a test SSH command
-					// This will cause GitHub CLI to generate the keys
-					try {
-						// Run a quick command that will trigger key generation
-						// Use timeout to prevent hanging, and we'll ignore the result
-						await execAsync(
-							`timeout 5 gh codespace ssh -c ${codespaceName} -- echo "key-check" 2>&1 || true`,
-							{ 
-								encoding: 'utf-8',
-								shell: '/bin/sh',
-								timeout: 6000 // 6 second timeout
-							}
-						);
-					} catch {
-						// Ignore errors - we just want to trigger key generation
-						// The keys should now exist even if the connection failed
-					}
-					
-					// Verify the key file was created
-					if (!fs.existsSync(expandedKeyPath)) {
-						throw new Error(
-							`SSH key file not found: ${expandedKeyPath}. ` +
-							`GitHub CLI may not have generated the keys. ` +
-							`Try running 'gh codespace ssh -c ${codespaceName}' manually to generate keys.`
-						);
-					}
-				}
-			}
-
 			return sshConfig;
 		} catch (error: any) {
-			const errorMessage = error.stderr || error.message || '';
-			
-			// Check if it's an SSHD error
-			if (errorMessage.includes('sshd') || errorMessage.includes('SSH')) {
-				throw new Error('SSHD_NOT_CONFIGURED');
-			}
-			
 			throw new Error(`Failed to generate SSH config: ${error.message}`);
 		}
 	}
